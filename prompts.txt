@@ -1,0 +1,90 @@
+PROMPTS USED DURING DEVELOPMENT
+AI tool: Claude (Anthropic), claude.ai, 08-11-2026 to 11-11-2026
+
+Prompts are listed in the order they were sent. Screenshots of terminal output, error
+messages, and short replies such as "yes", "ok", "wait" and "continue" are omitted.
+Every code file was run and tested by me.
+
+------------------------------------------------------------
+PLANNING
+------------------------------------------------------------
+
+1. [Attached: 2 screenshots of the final project instructions]
+want to start building this, give me a plan with proper timeline and my professor has explained the ending should be in the form of a live dashboard which can be shared with him and the dashboard should be changing the numbers because it will be connected to live data. it should be simple and not too complex so that code can be explained to him if he asks me anything, simple and not too lengthy this is what consists in example - https://github.com/conduktor/public-streaming-api this project should be simple enough for my professor to reproduce it in his system, and he uses a mac and i will built it in my windows system
+
+2. i want to finish it by wednesday eod
+
+------------------------------------------------------------
+UNDERSTANDING THE DATA SOURCE
+------------------------------------------------------------
+
+3. before that give me the link of the DS and how can i check that it is a stream data and not batch
+
+4. but where is this data coming from constantly
+
+5. how can I prove that its real people and bots editing wikipedia
+
+6. can I make a change in wikipedia and prove it
+
+7. what is kafka and how is the download growing if i am not even using and doing any kind of edits
+
+8. shouldnt the mb decrease then
+
+9. still not clear what exactly is kafka and why did mb increase and also what is this new message
+
+10. why does it show in the beginning what i had typed but later only shows the number of rise or drop in characters
+
+------------------------------------------------------------
+BUSINESS OBJECTIVE AND MEASURES
+------------------------------------------------------------
+
+11. but what is the business objective that the dashboard will be fullfilling
+
+12. but how does this help the business what exacty is the need for monitoring this
+
+13. Like in any data pipeline, these measures matter: Throughput, Latency, Scalability, Reliability, Accuracy. How will these measures be calculated and just tell me what is the proportionality between them
+
+14. at the end of this will i be able to show all these in my dashboard
+
+15. explain me in simple words what is kafka
+
+16. give me one word for kafka, is it a database an application a website or what
+
+17. give me a summary of all the steps which will be done to complete this project and how are those steps aligned with the points mentioned in the pictures
+
+------------------------------------------------------------
+PROFESSOR'S FEEDBACK
+------------------------------------------------------------
+
+18. [Attached: transcript of my recorded one-on-one with the professor]
+before moving ahead I had a one on one with the professor today and these are his words which i have recorded,
+
+(His three notes: 1. cumulative, meaningful business objectives; 2. what happens
+to the data while the consumer is down; 3. duplicate records must be processed
+exactly once. The design of the consumer and the dashboard follows these notes.)
+
+19. as per the professor test 1 and 2 are completed but what about the objectives from his words i sent you earlier
+
+------------------------------------------------------------
+BUILDING (Docker, producer, consumer, dashboard)
+------------------------------------------------------------
+
+20. which plan to select   [Docker Desktop download page]
+
+21. how will I be able to chat with you   [after the Docker/WSL restart]
+
+22. before that what to do with this window   [WSL welcome window]
+
+23. before going forward, I want to complete these steps,
+3. Check the database (in another Command Prompt, from C:\wiki-stream\consumer with the same activate line):
+4.Quick recovery test (this is the professor's note 2 in miniature):
+
+24. explain me why does the consumer keep showing me 500 again and again whereas we pushed 500 duplicates once and the drop of 500 duplicates was just once
+
+25. what if I close my laptop and restart tomorrow
+
+26. if I keep my laptop on will it not run out of storage because database keeps saving entries
+
+27. help me with the dashboard steps again
+
+28. before moving forward can you explain me what is kafka and what did i just create
