@@ -17,21 +17,6 @@ NON_WIKIPEDIA = ("'commonswiki','wikidatawiki','metawiki','specieswiki','mediawi
                  "'testwiki','test2wiki','testwikidatawiki','foundationwiki','sourceswiki',"
                  "'incubatorwiki','loginwiki','outreachwiki','wikimaniawiki','donatewiki'")
 
-st.set_page_config(page_title="Wikipedia Edit Monitor", layout="wide")
-st.title("Wikipedia Edit Monitor (live)")
-st.caption("Wikimedia live edits -> Kafka -> consumer -> SQLite -> this dashboard")
-
-# ---------------- sidebar controls ----------------
-scope = st.sidebar.radio("Scope", ["Wikipedia language editions", "All Wikimedia projects"])
-threshold = st.sidebar.slider(
-    "An edit is 'unusual' if the page size changes by at least (characters)",
-    200, 5000, 1000, 100)
-who = st.sidebar.radio("Editors", ["All", "Humans only", "Bots only"])
-st.sidebar.caption("All numbers are cumulative over the last 48 hours of data. Refresh every 5 s.")
-
-BOT_SQL = {"All": "", "Humans only": "AND bot = 0", "Bots only": "AND bot = 1"}[who]
-WIKI_SQL = (f"AND wiki LIKE '%wiki' AND wiki NOT IN ({NON_WIKIPEDIA})"
-            if scope == "Wikipedia language editions" else "")
 EDITS = "type = 'edit' AND size_change IS NOT NULL AND event_ts > :since"
 UNUSUAL = "ABS(size_change) >= :t"
 
@@ -42,6 +27,45 @@ def query(sql, params=None):
         return pd.read_sql_query(sql, con, params=params or {})
     finally:
         con.close()
+
+
+st.set_page_config(page_title="Wikipedia Edit Monitor", layout="wide")
+st.title("Wikipedia Edit Monitor (live)")
+st.caption("Wikimedia live edits -> Kafka -> consumer -> SQLite -> this dashboard")
+
+# ---------------- sidebar controls ----------------
+scope = st.sidebar.radio("Scope", ["Wikipedia language editions", "All Wikimedia projects"])
+WIKI_SQL = (f"AND wiki LIKE '%wiki' AND wiki NOT IN ({NON_WIKIPEDIA})"
+            if scope == "Wikipedia language editions" else "")
+
+# The list of wikis is built ONCE per session and scope and sorted alphabetically,
+# so it stays identical between reruns and the dropdown keeps the chosen value.
+opts_key = f"wiki_options_{scope}"
+if len(st.session_state.get(opts_key, [])) <= 1:
+    found = []
+    if DB_PATH.exists():
+        try:
+            found = query(
+                f"""SELECT wiki FROM events WHERE {EDITS} {WIKI_SQL}
+                    GROUP BY wiki HAVING COUNT(*) >= 20
+                    ORDER BY COUNT(*) DESC LIMIT 80""",
+                {"since": time.time() - 7 * 86400})["wiki"].tolist()
+        except Exception:
+            found = []
+    st.session_state[opts_key] = ["All wikis"] + sorted(found)
+
+chosen = st.sidebar.selectbox("Wiki (filter the whole page)",
+                              st.session_state[opts_key], key=f"wiki_choice_{scope}")
+ONE_SQL = "AND wiki = :w" if chosen != "All wikis" else ""
+MIN_EDITS = 1 if chosen != "All wikis" else 100
+
+threshold = st.sidebar.slider(
+    "An edit is 'unusual' if the page size changes by at least (characters)",
+    200, 5000, 1000, 100)
+who = st.sidebar.radio("Editors", ["All", "Humans only", "Bots only"])
+st.sidebar.caption("All numbers are cumulative over the last 48 hours of data. Refresh every 5 s.")
+
+BOT_SQL = {"All": "", "Humans only": "AND bot = 0", "Bots only": "AND bot = 1"}[who]
 
 
 @st.cache_resource
@@ -64,14 +88,15 @@ def render():
     if not DB_PATH.exists():
         st.warning("No data yet. Start the producer and the consumer.")
         return
-    p = {"t": threshold, "since": time.time() - 7 * 86400}
+    p = {"t": threshold, "since": time.time() - 7 * 86400, "w": chosen}
+    label = chosen if chosen != "All wikis" else scope
 
     # ---------------- headline numbers ----------------
     k = query(f"""SELECT COUNT(*) AS edits,
                          COALESCE(SUM({UNUSUAL}), 0) AS unusual,
                          AVG(ABS(size_change)) AS avg_abs,
                          MIN(event_ts) AS first_ts, MAX(event_ts) AS last_ts
-                  FROM events WHERE {EDITS} {WIKI_SQL} {BOT_SQL}""", p).iloc[0]
+                  FROM events WHERE {EDITS} {WIKI_SQL} {ONE_SQL} {BOT_SQL}""", p).iloc[0]
     if k["edits"] == 0:
         st.info("Waiting for data...")
         return
@@ -82,7 +107,7 @@ def render():
     c4.metric("Avg size change (chars)", f"{k['avg_abs']:.0f}")
     first = pd.to_datetime(k["first_ts"], unit="s").strftime("%d %b %H:%M")
     hours = (k["last_ts"] - k["first_ts"]) / 3600
-    st.caption(f"Scope: {scope}. Cumulative since {first} UTC ({hours:.1f} hours of data)")
+    st.caption(f"Showing: {label}. Cumulative since {first} UTC ({hours:.1f} hours of data)")
 
     # ---------------- objective 1 ----------------
     st.header("Objective 1: Where is risky editing concentrated?")
@@ -90,8 +115,8 @@ def render():
     wikis = query(f"""SELECT wiki, COUNT(*) AS edits, SUM({UNUSUAL}) AS unusual,
                              ROUND(100.0 * SUM({UNUSUAL}) / COUNT(*), 1) AS unusual_pct,
                              ROUND(AVG(ABS(size_change))) AS avg_size_change
-                      FROM events WHERE {EDITS} {WIKI_SQL} {BOT_SQL}
-                      GROUP BY wiki HAVING COUNT(*) >= 100
+                      FROM events WHERE {EDITS} {WIKI_SQL} {ONE_SQL} {BOT_SQL}
+                      GROUP BY wiki HAVING COUNT(*) >= {MIN_EDITS}
                       ORDER BY unusual DESC LIMIT 15""", p)
     left.subheader("Top wikis by unusual edits")
     left.dataframe(wikis, hide_index=True, column_config={
@@ -99,7 +124,7 @@ def render():
             "unusual %", min_value=0, max_value=100, format="%.1f%%")})
     trend = query(f"""SELECT strftime('%m-%d %H:00', event_ts, 'unixepoch') AS hour,
                              ROUND(100.0 * SUM({UNUSUAL}) / COUNT(*), 1) AS unusual_pct
-                      FROM events WHERE {EDITS} {WIKI_SQL} {BOT_SQL}
+                      FROM events WHERE {EDITS} {WIKI_SQL} {ONE_SQL} {BOT_SQL}
                       GROUP BY hour ORDER BY hour""", p)
     right.subheader("Unusual share per hour (%)")
     right.bar_chart(trend.set_index("hour")["unusual_pct"])
@@ -109,24 +134,25 @@ def render():
     a, b, c = st.columns(3)
     users = query(f"""SELECT user, CASE MAX(bot) WHEN 1 THEN 'bot' ELSE 'human' END AS kind,
                              SUM({UNUSUAL}) AS unusual_edits, COUNT(*) AS edits
-                      FROM events WHERE {EDITS} {WIKI_SQL} {BOT_SQL}
+                      FROM events WHERE {EDITS} {WIKI_SQL} {ONE_SQL} {BOT_SQL}
                       GROUP BY user ORDER BY unusual_edits DESC LIMIT 10""", p)
     a.subheader("Top users")
     a.dataframe(users, hide_index=True)
     pages = query(f"""SELECT wiki, title, SUM({UNUSUAL}) AS unusual_edits, COUNT(*) AS edits
-                      FROM events WHERE {EDITS} {WIKI_SQL} {BOT_SQL}
+                      FROM events WHERE {EDITS} {WIKI_SQL} {ONE_SQL} {BOT_SQL}
                       GROUP BY wiki, title ORDER BY unusual_edits DESC LIMIT 10""", p)
     b.subheader("Top pages")
     b.dataframe(pages, hide_index=True)
     split = query(f"""SELECT CASE bot WHEN 1 THEN 'Bots' ELSE 'Humans' END AS editors,
                              COUNT(*) AS edits, SUM({UNUSUAL}) AS unusual,
                              ROUND(100.0 * SUM({UNUSUAL}) / COUNT(*), 1) AS unusual_pct
-                      FROM events WHERE {EDITS} {WIKI_SQL} GROUP BY bot""", p)
+                      FROM events WHERE {EDITS} {WIKI_SQL} {ONE_SQL} GROUP BY bot""", p)
     c.subheader("Bots vs humans")
     c.dataframe(split, hide_index=True)
 
-    # ---------------- pipeline health ----------------
+    # ---------------- pipeline health (always global) ----------------
     st.header("Pipeline health")
+    st.caption("Covers the whole pipeline, not affected by the wiki filter.")
     h = query("""SELECT COUNT(*) AS n, AVG(latency_s) AS lat
                  FROM events WHERE processed_ts > :since""", {"since": time.time() - 60}).iloc[0]
     saved = int(query("SELECT COUNT(*) AS n FROM events").iloc[0, 0])
